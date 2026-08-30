@@ -126,6 +126,7 @@ set(DIALOGS_SOURCES
     src/dialogs/curvesdialog.cpp
     src/dialogs/settingsdialog.cpp
     src/dialogs/previewdialog.cpp
+    src/dialogs/saveconfigdialog.cpp
 )
 
 set(PLUGINS_SOURCES
