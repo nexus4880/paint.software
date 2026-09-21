@@ -441,6 +441,26 @@ int main(int argc, char **argv) {
         CHECK(d2.layerAt(0)->name()=="C" && d2.layerAt(2)->name()=="A", "reorderLayers");
     }
 
+    // ---------- REGIONAL RENDERING ----------
+    SECTION("Regional flatten matches full flatten");
+    {
+        Document doc(48, 36);
+        doc.activeLayer()->clear(QColor(40, 70, 110, 255));
+        QImage topImage(22, 18, QImage::Format_ARGB32_Premultiplied);
+        topImage.fill(QColor(200, 80, 30, 210));
+        const int topIndex = doc.addLayer(topImage);
+        doc.layerAt(topIndex)->setOffset(QPoint(17, -4));
+        doc.layerAt(topIndex)->setOpacity(0.65f);
+        doc.layerAt(topIndex)->setBlendMode(BlendMode::Multiply);
+
+        const QImage full = doc.flattenVisible();
+        for (const QRect &tile : {QRect(0, 0, 16, 14), QRect(8, 6, 24, 20),
+                                  QRect(30, 16, 18, 20)}) {
+            CHECK(doc.flattenVisible(tile) == full.copy(tile),
+                  "regional flatten matches full composite");
+        }
+    }
+
     // ---------- SMART MERGE (keep both artworks) ----------
     SECTION("Smart merge keeps artwork from both layers");
     {
