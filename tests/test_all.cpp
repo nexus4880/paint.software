@@ -563,7 +563,7 @@ int main(int argc, char **argv) {
         doc.activeLayer()->clear(Qt::transparent);
         QPainter p(&doc.activeLayer()->image());
         p.fillRect(6,6,12,12, QColor(255,0,0,255)); p.end();
-        QString png = "/tmp/_pdtest.png", jpg = "/tmp/_pdtest.jpg";
+        QString png = QDir::tempPath() + "/_pdtest.png", jpg = QDir::tempPath() + "/_pdtest.jpg";
         CHECK(doc.save(png), "save PNG");
         CHECK(doc.save(jpg), "save JPG");
         Document loaded(png);

@@ -71,6 +71,10 @@ public:
     // here so switching away doesn't silently discard the work.
     virtual void deactivate(CanvasWidget &canvas) { Q_UNUSED(canvas); }
 
+    // Opt-in: the tool reports its pixel damage through updateCanvasRegion().
+    // Other tools retain the conservative full-cache invalidation path.
+    virtual bool updatesCanvasRegion() const { return false; }
+
     // Tool options
     // Brush size is fractional and ranges 1..2000, matching Paint.NET (which
     // antialiases sub-integer sizes). The drawing code already works in doubles.
