@@ -124,5 +124,15 @@ void CloneStampTool::drawOverlay(QPainter &painter, const CanvasWidget &canvas) 
         painter.drawLine(QPointF(srcWidget.x() - 10, srcWidget.y()), QPointF(srcWidget.x() + 10, srcWidget.y()));
         painter.drawLine(QPointF(srcWidget.x(), srcWidget.y() - 10), QPointF(srcWidget.x(), srcWidget.y() + 10));
         painter.drawEllipse(srcWidget, radius, radius);
+
+        if (m_drawing) {
+            QPointF sampledWidget = canvas.canvasToWidget(m_currentPos + m_offset);
+            painter.setPen(QPen(Qt::blue, 1));
+            painter.drawLine(QPointF(sampledWidget.x() - 10, sampledWidget.y()),
+                             QPointF(sampledWidget.x() + 10, sampledWidget.y()));
+            painter.drawLine(QPointF(sampledWidget.x(), sampledWidget.y() - 10),
+                             QPointF(sampledWidget.x(), sampledWidget.y() + 10));
+            painter.drawEllipse(sampledWidget, radius, radius);
+        }
     }
 }

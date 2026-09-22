@@ -230,6 +230,32 @@ int main(int argc, char **argv) {
             strokeTool(&clone, canvas, QPointF(40,40), QPointF(45,45));
             CHECK(imagesDiffer(before, doc.activeLayer()->image()), "Clone stamp modifies pixels");
         }
+        // During a clone stroke, the sampled-source crosshair follows the
+        // source offset while the original source crosshair stays fixed.
+        {
+            Document doc(100, 100); doc.activeLayer()->clear(Qt::white);
+            CanvasWidget canvas; canvas.setDocument(&doc); canvas.setZoom(1.0);
+            canvas.setPan(QPointF(0, 0));
+            CloneStampTool clone;
+            clone.setBrushSize(1);
+            QMouseEvent src = pressEv(QPointF(30, 30), Qt::RightButton);
+            clone.mousePressEvent(QPointF(30, 30), &src, canvas);
+            QMouseEvent press = pressEv(QPointF(40, 40));
+            clone.mousePressEvent(QPointF(40, 40), &press, canvas);
+            QMouseEvent move = moveEv(QPointF(40, 35));
+            clone.mouseMoveEvent(QPointF(40, 35), &move, canvas);
+
+            QImage overlay(100, 100, QImage::Format_ARGB32);
+            overlay.fill(Qt::white);
+            QPainter painter(&overlay);
+            clone.drawOverlay(painter, canvas);
+            painter.end();
+
+            CHECK(overlay.pixelColor(58, 45) == QColor(Qt::blue),
+                  "Clone overlay shows blue crosshair at the sampled source");
+            CHECK(overlay.pixelColor(58, 50) == QColor(Qt::red),
+                  "Clone overlay keeps red crosshair at the original source");
+        }
     }
 
     // ---------- RECOLOR & PENCIL OPTIONS ----------
