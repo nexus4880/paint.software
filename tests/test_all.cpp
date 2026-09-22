@@ -43,7 +43,10 @@
 #include <QImageWriter>
 #include <QImageReader>
 #include <QTemporaryFile>
+#include <QTemporaryDir>
+#include <QFileInfo>
 #include "dialogs/resizedialog.h"
+#include "dialogs/saveconfigdialog.h"
 #include <QPushButton>
 #include <QComboBox>
 #include <QLineEdit>
@@ -2728,6 +2731,43 @@ int main(int argc, char **argv) {
                   && std::abs(c.blue() - want.blue()) < 24,
                   "webp colours round-trip within tolerance");
         }
+    }
+
+    SECTION("Save Configuration: JPEG quality changes size and is remembered (Paint.NET)");
+    {
+        // A photo-like gradient so JPEG quality actually moves the file size.
+        Document doc(64, 64);
+        QImage img(64, 64, QImage::Format_ARGB32_Premultiplied);
+        for (int y = 0; y < 64; ++y)
+            for (int x = 0; x < 64; ++x)
+                img.setPixelColor(x, y, QColor((x * 7) % 256, (y * 11) % 256, (x * y) % 256));
+        doc.activeLayer()->setImage(img);
+
+        QTemporaryDir dir;
+        CHECK(dir.isValid(), "temp dir for JPEG saves");
+        const QString lowPath  = dir.filePath("low.jpg");
+        const QString highPath = dir.filePath("high.jpg");
+
+        CHECK(doc.save(lowPath, 10),  "save JPEG at quality 10");
+        CHECK(doc.save(highPath, 95), "save JPEG at quality 95");
+        const qint64 lowSize  = QFileInfo(lowPath).size();
+        const qint64 highSize = QFileInfo(highPath).size();
+        CHECK(lowSize > 0 && highSize > 0, "both JPEGs are written");
+        CHECK(lowSize < highSize, "lower quality yields a smaller JPEG");
+
+        // A plain re-save (quality == -1) must reuse the last chosen quality, so a
+        // Ctrl+S after Save As keeps the setting instead of reverting to default.
+        const QString reuse = dir.filePath("reuse.jpg");
+        CHECK(doc.save(reuse), "re-save without an explicit quality");
+        const qint64 reuseSize = QFileInfo(reuse).size();
+        CHECK(std::abs(reuseSize - highSize) < highSize / 5,
+              "re-save reuses the remembered quality (≈ last size)");
+
+        // The dialog only offers itself for lossy formats.
+        CHECK(SaveConfigDialog::supportsQuality("jpg")
+              && SaveConfigDialog::supportsQuality("webp")
+              && !SaveConfigDialog::supportsQuality("png"),
+              "quality dialog is offered for JPEG/WebP, not PNG");
     }
 
     // ---------- RESULT ----------

@@ -425,9 +425,13 @@ bool Document::loadNative(const QString &filePath) {
     return true;
 }
 
-bool Document::save(const QString &filePath) {
+bool Document::save(const QString &filePath, int quality) {
     if (isNativeFormat(filePath))
         return saveNative(filePath);
+
+    // Remember an explicit quality; a later plain Save (quality == -1) reuses it.
+    if (quality >= 0) m_saveQuality = quality;
+    else quality = m_saveQuality;
 
     QImage flat = flatten();
 
@@ -446,6 +450,7 @@ bool Document::save(const QString &filePath) {
     }
 
     QImageWriter writer(filePath);
+    if (quality >= 0) writer.setQuality(quality);
     if (writer.write(flat)) {
         m_filePath = filePath;
         m_modified = false;
