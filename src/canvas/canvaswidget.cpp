@@ -190,6 +190,16 @@ void CanvasWidget::updateCanvas() {
     update();
 }
 
+void CanvasWidget::updateCanvasRegion(const QRect &documentRect) {
+    if (!m_document || documentRect.isEmpty()) return;
+    const QRect dirty = documentRect.intersected(QRect(QPoint(), m_document->size()));
+    if (dirty.isEmpty()) return;
+    m_dirtyRender += dirty;
+    const QRectF widgetRect(canvasToWidget(dirty.topLeft()),
+                            QSizeF(dirty.size()) * m_zoom);
+    update(widgetRect.toAlignedRect().adjusted(-2, -2, 2, 2));
+}
+
 void CanvasWidget::paintEvent(QPaintEvent *) {
     QPainter painter(this);
     painter.setRenderHint(QPainter::SmoothPixmapTransform, m_zoom < 2.0);
@@ -214,7 +224,13 @@ void CanvasWidget::paintEvent(QPaintEvent *) {
     if (!m_cacheValid) {
         m_cachedRender = m_document->flattenVisible();
         m_cacheValid = true;
+    } else if (!m_dirtyRender.isEmpty()) {
+        QPainter cachePainter(&m_cachedRender);
+        cachePainter.setCompositionMode(QPainter::CompositionMode_Source);
+        for (const QRect &dirty : m_dirtyRender)
+            cachePainter.drawImage(dirty.topLeft(), m_document->flattenVisible(dirty));
     }
+    m_dirtyRender = QRegion();
     painter.drawImage(canvasRect, m_cachedRender);
 
     // Grid at high zoom
@@ -368,11 +384,14 @@ void CanvasWidget::drawCheckerboard(QPainter &painter, const QRect &rect) {
 
     painter.save();
     painter.setClipRect(rect);
-    int startX = rect.left() - (rect.left() % (gridSize * 2));
-    int startY = rect.top() - (rect.top() % (gridSize * 2));
+    // At 1:1/high zoom most of a large document can be offscreen. Never walk
+    // all those invisible checker squares for a local brush update.
+    const QRect visible = rect.intersected(this->rect());
+    int startX = visible.left() - (visible.left() % (gridSize * 2));
+    int startY = visible.top() - (visible.top() % (gridSize * 2));
 
-    for (int y = startY; y < rect.bottom(); y += gridSize) {
-        for (int x = startX; x < rect.right(); x += gridSize) {
+    for (int y = startY; y <= visible.bottom(); y += gridSize) {
+        for (int x = startX; x <= visible.right(); x += gridSize) {
             bool dark = ((x / gridSize) + (y / gridSize)) % 2;
             painter.fillRect(x, y, gridSize, gridSize, dark ? c2 : c1);
         }
@@ -384,8 +403,16 @@ void CanvasWidget::drawSelectionMarching(QPainter &painter) {
     if (!m_document) return;
 
     const Selection &sel = m_document->selection();
-    QRegion region = sel.region();
-    if (region.isEmpty()) return;
+    // The mask/outline does not change when the pointer or dash phase moves.
+    // Rebuilding it on every paint scans the full canvas and simplifies thousands
+    // of scanline rectangles, overwhelming otherwise-local brush updates.
+    if (m_selectionOutlineKey != sel.mask().cacheKey()) {
+        QPainterPath path;
+        path.addRegion(sel.region());
+        m_selectionOutline = path.simplified();
+        m_selectionOutlineKey = sel.mask().cacheKey();
+    }
+    if (m_selectionOutline.isEmpty()) return;
 
     painter.save();
     int rs = m_showRulers ? 20 : 0;
@@ -404,14 +431,10 @@ void CanvasWidget::drawSelectionMarching(QPainter &painter) {
     // filled non-rectangular selections (ellipse, lasso) with static instead of
     // just tracing the perimeter (issue #15). simplified() merges the rects so
     // only the true boundary is stroked.
-    QPainterPath path;
-    path.addRegion(region);
-    path = path.simplified();
-
     painter.setPen(pen1);
-    painter.drawPath(path);
+    painter.drawPath(m_selectionOutline);
     painter.setPen(pen2);
-    painter.drawPath(path);
+    painter.drawPath(m_selectionOutline);
     painter.restore();
 }
 
@@ -471,7 +494,7 @@ void CanvasWidget::mousePressEvent(QMouseEvent *event) {
         }
         QPointF canvasPos = widgetToCanvas(event->position());
         m_currentTool->mousePressEvent(canvasPos, event, *this);
-        m_cacheValid = false;
+        if (!m_currentTool->updatesCanvasRegion()) m_cacheValid = false;
         update();
     }
 }
@@ -498,7 +521,7 @@ void CanvasWidget::mouseMoveEvent(QMouseEvent *event) {
 
     if (m_currentTool && m_document) {
         m_currentTool->mouseMoveEvent(canvasPos, event, *this);
-        m_cacheValid = false;
+        if (!m_currentTool->updatesCanvasRegion()) m_cacheValid = false;
         update();
     }
 }
@@ -512,7 +535,7 @@ void CanvasWidget::mouseReleaseEvent(QMouseEvent *event) {
 
     if (m_currentTool && m_document) {
         m_currentTool->mouseReleaseEvent(widgetToCanvas(event->position()), event, *this);
-        m_cacheValid = false;
+        if (!m_currentTool->updatesCanvasRegion()) m_cacheValid = false;
         update();
         emit canvasModified();
     }

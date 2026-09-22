@@ -326,6 +326,26 @@ QImage Document::flattenVisible() const {
     return flatten();
 }
 
+QImage Document::flattenVisible(const QRect &region) const {
+    const QRect tile = region.intersected(QRect(QPoint(), size()));
+    if (tile.isEmpty()) return QImage();
+    QImage result(tile.size(), QImage::Format_ARGB32_Premultiplied);
+    result.fill(Qt::transparent);
+    for (const auto &layer : m_layers) {
+        if (!layer->isVisible() || layer->opacity() <= 0) continue;
+        const QRect source = tile.translated(-layer->offset()).intersected(layer->image().rect());
+        if (source.isEmpty()) continue;
+        // Reuse the exact layer blend implementation, including custom modes,
+        // while keeping all its allocations and per-pixel loops tile-sized.
+        Layer part(layer->image().copy(source));
+        part.setOffset(source.topLeft() + layer->offset() - tile.topLeft());
+        part.setOpacity(layer->opacity());
+        part.setBlendMode(layer->blendMode());
+        result = part.composited(result);
+    }
+    return result;
+}
+
 bool Document::isNativeFormat(const QString &filePath) {
     return QFileInfo(filePath).suffix().toLower() == "psw";
 }

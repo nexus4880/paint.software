@@ -80,6 +80,8 @@ public:
     // Rendering
     QImage flatten() const;
     QImage flattenVisible() const;
+    // Same composition as flattenVisible(), restricted to a document-space tile.
+    QImage flattenVisible(const QRect &region) const;
 
     // File I/O
     bool save(const QString &filePath);
