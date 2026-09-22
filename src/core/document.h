@@ -80,9 +80,14 @@ public:
     // Rendering
     QImage flatten() const;
     QImage flattenVisible() const;
+    // Same composition as flattenVisible(), restricted to a document-space tile.
+    QImage flattenVisible(const QRect &region) const;
 
     // File I/O
-    bool save(const QString &filePath);
+    // quality: 0..100 for lossy formats (JPEG, WebP). -1 means "reuse the last
+    // chosen quality" (so a plain Save after Save As keeps the picked setting,
+    // like Paint.NET remembering its Save Configuration).
+    bool save(const QString &filePath, int quality = -1);
     bool load(const QString &filePath);
     // Native layered format (.psw) — preserves every layer, not just a flattened
     // image. Used automatically when the path ends in ".psw".
@@ -121,6 +126,7 @@ private:
     HistoryManager m_history;
     QString m_filePath;
     bool m_modified = false;
+    int m_saveQuality = -1;   // last lossy-format quality chosen via Save As
     bool m_editAllLayers = false;
     QColor m_primaryColor = Qt::black;
     QColor m_secondaryColor = Qt::white;

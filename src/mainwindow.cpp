@@ -17,6 +17,7 @@
 #include "dialogs/curvesdialog.h"
 #include "dialogs/settingsdialog.h"
 #include "dialogs/previewdialog.h"
+#include "dialogs/saveconfigdialog.h"
 #include "plugins/pluginmanager.h"
 #include "plugins/plugineffect.h"
 #include "tools/tool.h"
@@ -1921,7 +1922,17 @@ bool MainWindow::saveDocumentAs() {
         if (res == QMessageBox::Cancel) return false;
     }
 
-    if (!m_document->save(filePath)) {
+    // For lossy formats (JPEG, WebP), let the user tune quality with a live
+    // preview and size estimate — Paint.NET's "Save Configuration" step.
+    int quality = -1;
+    const QString suffix = QFileInfo(filePath).suffix().toLower();
+    if (SaveConfigDialog::supportsQuality(suffix)) {
+        SaveConfigDialog dlg(m_document->flatten(), suffix, this);
+        if (dlg.exec() != QDialog::Accepted) return false;
+        quality = dlg.quality();
+    }
+
+    if (!m_document->save(filePath, quality)) {
         QMessageBox::warning(this, TR("Erreur"), TR("Impossible d'enregistrer le fichier."));
         return false;
     }

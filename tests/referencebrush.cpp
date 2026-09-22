@@ -1,4 +1,5 @@
-#include "brushtool.h"
+// Frozen v1.1.75 brush oracle; compare every intermediate image.
+#include "referencebrush.h"
 #include "canvas/canvaswidget.h"
 #include "core/document.h"
 #include "core/hatchpatterns.h"
@@ -6,7 +7,7 @@
 #include <QPainter>
 #include <cmath>
 
-void BrushTool::mousePressEvent(const QPointF &canvasPos, QMouseEvent *event, CanvasWidget &canvas) {
+void ReferenceBrushTool::mousePressEvent(const QPointF &canvasPos, QMouseEvent *event, CanvasWidget &canvas) {
     if (event->button() != Qt::LeftButton && event->button() != Qt::RightButton) return;
     auto *doc = canvas.document();
     auto *layer = doc->activeLayer();
@@ -33,27 +34,20 @@ void BrushTool::mousePressEvent(const QPointF &canvasPos, QMouseEvent *event, Ca
     m_strokeBuffer = QImage(layer->image().size(), QImage::Format_ARGB32_Premultiplied);
     m_strokeBuffer.fill(Qt::transparent);
 
-    m_dirtyRect = QRect();
-    m_segmentBounds = QRect();
-    m_compositedOpacity = -1;
-    m_selectionKey = -1;
     m_strokeColor = col;
     drawBrushDab(canvasPos, m_strokeColor);
-    canvas.updateCanvasRegion(compositeStroke(doc, layer, m_strokeColor).translated(layer->offset()));
+    compositeStroke(doc, layer, m_strokeColor);
 }
 
-void BrushTool::switchColour(Document *doc, Layer *layer, const QColor &color) {
+void ReferenceBrushTool::switchColour(Document *doc, Layer *layer, const QColor &color) {
     // Bake the coverage drawn so far into the base, then continue in the new
     // colour from the current point (no gap).
     m_baseImage = layer->image().copy();
-    QPainter clear(&m_strokeBuffer);
-    clear.setCompositionMode(QPainter::CompositionMode_Source);
-    clear.fillRect(m_segmentBounds, Qt::transparent);
-    m_segmentBounds = QRect();
+    m_strokeBuffer.fill(Qt::transparent);
     m_strokeColor = color;
 }
 
-void BrushTool::mouseMoveEvent(const QPointF &canvasPos, QMouseEvent *event, CanvasWidget &canvas) {
+void ReferenceBrushTool::mouseMoveEvent(const QPointF &canvasPos, QMouseEvent *event, CanvasWidget &canvas) {
     m_currentPos = canvasPos;
     if (!m_drawing) return;
     auto *doc = canvas.document();
@@ -63,10 +57,10 @@ void BrushTool::mouseMoveEvent(const QPointF &canvasPos, QMouseEvent *event, Can
     Q_UNUSED(event);
     drawBrushStroke(m_lastPos, canvasPos, m_strokeColor);
     m_lastPos = canvasPos;
-    canvas.updateCanvasRegion(compositeStroke(doc, layer, m_strokeColor).translated(layer->offset()));
+    compositeStroke(doc, layer, m_strokeColor);
 }
 
-void BrushTool::mouseReleaseEvent(const QPointF &, QMouseEvent *event, CanvasWidget &canvas) {
+void ReferenceBrushTool::mouseReleaseEvent(const QPointF &, QMouseEvent *event, CanvasWidget &canvas) {
     if (!m_drawing) return;
     auto *doc = canvas.document();
     auto *layer = doc ? doc->activeLayer() : nullptr;
@@ -87,7 +81,7 @@ void BrushTool::mouseReleaseEvent(const QPointF &, QMouseEvent *event, CanvasWid
     m_baseImage = QImage();
 }
 
-void BrushTool::drawBrushStroke(const QPointF &from, const QPointF &to, const QColor &color) {
+void ReferenceBrushTool::drawBrushStroke(const QPointF &from, const QPointF &to, const QColor &color) {
     double dx = to.x() - from.x();
     double dy = to.y() - from.y();
     double dist = std::sqrt(dx * dx + dy * dy);
@@ -101,7 +95,7 @@ void BrushTool::drawBrushStroke(const QPointF &from, const QPointF &to, const QC
     }
 }
 
-void BrushTool::drawBrushDab(const QPointF &pos, const QColor &color) {
+void ReferenceBrushTool::drawBrushDab(const QPointF &pos, const QColor &color) {
     QPainter painter(&m_strokeBuffer);
     if (m_antialiased) painter.setRenderHint(QPainter::Antialiasing);
     painter.setPen(Qt::NoPen);
@@ -115,11 +109,6 @@ void BrushTool::drawBrushDab(const QPointF &pos, const QColor &color) {
     const double p = m_pressureSensitivity ? m_pressure : 1.0;
     const double radius = (m_brushSize / 2.0) * p;
     if (radius < 0.4) return;   // effectively no pressure = no mark
-
-    // Include the rasterizer's antialias fringe, including fractional centres.
-    m_dirtyRect = m_dirtyRect.united(QRectF(pos.x() - radius - 2, pos.y() - radius - 2,
-                                          2 * radius + 4, 2 * radius + 4).toAlignedRect()
-                                    .intersected(m_strokeBuffer.rect()));
 
     if (m_fillStyle > 0) {
         // Patterned brush (Fill Style): stamp the hatch — pattern lines in the
@@ -145,52 +134,41 @@ void BrushTool::drawBrushDab(const QPointF &pos, const QColor &color) {
     }
 }
 
-QRect BrushTool::compositeStroke(Document *doc, Layer *layer, const QColor &color) {
-    m_segmentBounds = m_segmentBounds.united(m_dirtyRect);
-    const qint64 selectionKey = doc->selection().mask().cacheKey();
-    if (selectionKey != m_selectionKey) {
-        m_selectionRegion = doc->selection().region();
+void ReferenceBrushTool::compositeStroke(Document *doc, Layer *layer, const QColor &color) {
+    if (m_blendMode == 14) {   // Overwrite needs a per-pixel replace, not a blend.
+        compositeOverwrite(doc, layer, color);
+        return;
     }
-    // Option/selection changes used to recomposite the whole colour segment.
-    // Preserve that behaviour, but ordinary pointer moves only touch new damage.
-    if (m_compositedOpacity != m_opacity || m_compositedBlendMode != m_blendMode
-        || m_selectionKey != selectionKey)
-        m_dirtyRect = m_segmentBounds;
-    m_compositedOpacity = m_opacity;
-    m_compositedBlendMode = m_blendMode;
-    m_selectionKey = selectionKey;
-    const QRect dirty = m_dirtyRect;
-    m_dirtyRect = QRect();
-    if (dirty.isEmpty()) return dirty;
-    if (m_blendMode == 14) {
-        compositeOverwrite(doc, layer, color, dirty);
-        return dirty;
-    }
-    // Restore from the immutable segment base before applying accumulated
-    // coverage once. Blending onto the previous preview would darken overlaps.
-    QPainter painter(&layer->image());
-    painter.setCompositionMode(QPainter::CompositionMode_Source);
-    painter.drawImage(dirty, m_baseImage, dirty);
-    if (!m_selectionRegion.isEmpty()) painter.setClipRegion(m_selectionRegion);
-    painter.setOpacity((m_opacity / 100.0) * color.alphaF());
+    // layer = base + strokeBuffer (at tool opacity), clipped to selection. The
+    // base carries any earlier-colour segments of this same stroke.
+    QImage result = m_baseImage.copy();
+    QPainter painter(&result);
+    clipToSelection(painter, doc);
+    // Opacity no longer depends on pressure — pressure drives dab size instead.
+    painter.setOpacity((m_opacity / 100.0) * (color.alphaF()));
     painter.setCompositionMode(brushCompositionMode());
-    painter.drawImage(dirty, m_strokeBuffer, dirty);
-    return dirty;
+    painter.drawImage(0, 0, m_strokeBuffer);
+    painter.end();
+    layer->setImage(result);
 }
 
-void BrushTool::compositeOverwrite(Document *doc, Layer *layer, const QColor &color, const QRect &dirty) {
-    // Keep the original straight-alpha interpolation (including rounding), but
-    // convert and scan only the damaged tile, not the entire layer every move.
-    QImage result = m_baseImage.copy(dirty).convertToFormat(QImage::Format_ARGB32);
-    const double strength = m_opacity / 100.0;
+void ReferenceBrushTool::compositeOverwrite(Document *doc, Layer *layer, const QColor &color) {
+    // Overwrite replaces the destination pixel outright (colour AND alpha) within
+    // the stroke's coverage, so it can also lower alpha. Only painted pixels are
+    // touched — drawing the whole buffer with CompositionMode_Source would wipe
+    // every untouched pixel of the layer (the original bug).
+    QImage result = m_baseImage.convertToFormat(QImage::Format_ARGB32);
+    const int w = result.width(), h = result.height();
+    const double strength = (m_opacity / 100.0);   // pressure drives size, not opacity
     const int tr = color.red(), tg = color.green(), tb = color.blue();
     const double ta = color.alphaF() * 255.0;
-    for (int y = 0; y < result.height(); ++y) {
-        const QRgb *buf = reinterpret_cast<const QRgb*>(m_strokeBuffer.constScanLine(y + dirty.y()));
+    for (int y = 0; y < h; ++y) {
+        const QRgb *buf = reinterpret_cast<const QRgb*>(m_strokeBuffer.constScanLine(y));
         QRgb *dst = reinterpret_cast<QRgb*>(result.scanLine(y));
-        for (int x = 0; x < result.width(); ++x) {
-            double cov = (qAlpha(buf[x + dirty.x()]) / 255.0) * strength;
-            if (cov <= 0.0 || !selectionAllows(doc, x + dirty.x(), y + dirty.y())) continue;
+        for (int x = 0; x < w; ++x) {
+            double cov = (qAlpha(buf[x]) / 255.0) * strength;
+            if (cov <= 0.0) continue;
+            if (!selectionAllows(doc, x, y)) continue;
             const double ic = 1.0 - cov;
             QRgb d = dst[x];
             dst[x] = qRgba(
@@ -200,18 +178,16 @@ void BrushTool::compositeOverwrite(Document *doc, Layer *layer, const QColor &co
                 qBound(0, int(qAlpha(d) * ic + ta * cov + 0.5), 255));
         }
     }
-    QPainter painter(&layer->image());
-    painter.setCompositionMode(QPainter::CompositionMode_Source);
-    painter.drawImage(dirty.topLeft(), result.convertToFormat(QImage::Format_ARGB32_Premultiplied));
+    layer->setImage(result.convertToFormat(QImage::Format_ARGB32_Premultiplied));
 }
 
-QPainter::CompositionMode BrushTool::brushCompositionMode() const {
+QPainter::CompositionMode ReferenceBrushTool::brushCompositionMode() const {
     // Shared mapping (Layer::allBlendModes order). 14 (Overwrite) is handled
     // separately in compositeOverwrite().
     return Tool::compositionModeFor(m_blendMode);
 }
 
-void BrushTool::drawOverlay(QPainter &painter, const CanvasWidget &canvas) {
+void ReferenceBrushTool::drawOverlay(QPainter &painter, const CanvasWidget &canvas) {
     QPointF widgetPos = canvas.canvasToWidget(m_currentPos);
     double radius = m_brushSize / 2.0 * canvas.zoom();
     painter.setPen(QPen(Qt::black, 1, Qt::DashLine));

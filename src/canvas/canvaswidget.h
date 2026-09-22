@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QPoint>
 #include <QTransform>
+#include <QPainterPath>
 
 class Document;
 class Tool;
@@ -41,6 +42,7 @@ public:
 
     // Rendering
     void updateCanvas();
+    void updateCanvasRegion(const QRect &documentRect);
     void setShowGrid(bool show) { m_showGrid = show; update(); }
     bool showGrid() const { return m_showGrid; }
     void setShowRulers(bool show);
@@ -109,10 +111,13 @@ private:
     // Marching ants
     QTimer m_marchingTimer;
     int m_marchingOffset = 0;
+    qint64 m_selectionOutlineKey = -1;
+    QPainterPath m_selectionOutline;
 
     // Cached render
     QImage m_cachedRender;
     bool m_cacheValid = false;
+    QRegion m_dirtyRender;
 
     // Tablet pressure
     double m_pressure = 1.0;
