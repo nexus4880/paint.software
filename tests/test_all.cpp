@@ -2172,6 +2172,30 @@ int main(int argc, char **argv) {
         CHECK(isCentred(1500, 900), "resetToDefaultView re-enables centring after a pan");
     }
 
+    SECTION("Zoom reuses the flattened document cache");
+    {
+        Document doc(32, 32);
+        doc.activeLayer()->clear(Qt::red);
+        CanvasWidget canvas;
+        canvas.resize(80, 80);
+        canvas.setShowRulers(false);
+        canvas.setDocument(&doc);
+        canvas.setPan(QPointF(0, 0));
+
+        QImage target(canvas.size(), QImage::Format_ARGB32_Premultiplied);
+        canvas.render(&target);                    // populate the cache
+        doc.activeLayer()->clear(Qt::blue);        // mutate without notification
+        canvas.setZoom(2.0);
+        canvas.render(&target);
+        CHECK(target.pixelColor(25, 25).red() > 180,
+              "zoom-only changes keep the cached document pixels");
+
+        doc.notifyContentChanged();
+        canvas.render(&target);
+        CHECK(target.pixelColor(25, 25).blue() > 180,
+              "document changes still invalidate the cached document pixels");
+    }
+
     SECTION("Resize dialog keeps typed decimals");
     {
         // Typing "8.5" into a Print Size field used to drop the ".5": the first
