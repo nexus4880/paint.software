@@ -72,7 +72,6 @@ void CanvasWidget::setCurrentTool(Tool *tool) {
 
 void CanvasWidget::setZoom(double zoom) {
     m_zoom = qBound(0.01, zoom, 64.0);
-    m_cacheValid = false;
     emit zoomChanged(m_zoom);
     update();
 }
